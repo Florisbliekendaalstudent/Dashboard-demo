@@ -60,18 +60,21 @@ def generate_totp_secret() -> str:
 
 def load_auth_config() -> dict:
     config = _load_yaml_file(AUTH_CONFIG_FILE)
-    enabled = _env_flag(AUTH_ENABLED_ENV)
+    env_enabled_str = os.getenv(AUTH_ENABLED_ENV)
 
     if not config:
         if not AUTH_CONFIG_FILE.exists():
-            auth_logger.error(
+            auth_logger.info(
                 f"Authentication config ontbreekt: {AUTH_CONFIG_FILE}. "
-                "Maak auth_config.yaml aan op basis van auth_config.example.yaml."
+                "Standaard uitgeschakeld voor demo."
             )
-        return {"enabled": True, "credentials": {"usernames": {}}}
+        enabled = _env_flag(AUTH_ENABLED_ENV) if env_enabled_str is not None else False
+        return {"enabled": enabled, "credentials": {"usernames": {}}}
 
-    if "enabled" not in config:
-        config["enabled"] = enabled or bool(config.get("credentials"))
+    if env_enabled_str is not None:
+        config["enabled"] = _env_flag(AUTH_ENABLED_ENV)
+    elif "enabled" not in config:
+        config["enabled"] = bool(config.get("credentials", {}).get("usernames"))
 
     if config.get("enabled") and "credentials" not in config:
         config["credentials"] = {"usernames": {}}

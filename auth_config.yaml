@@ -1,0 +1,21 @@
+# Authentication instellingen voor Smart Health Dashboard Demo
+enabled: false
+
+credentials:
+  usernames:
+    admin:
+      name: Demo Administrator
+      email: admin@example.com
+      password: "$2b$12$qYWvZGfHhg.5og69ly57l.lIpf90wQZyDTGCy40usMX/GLQ9oufmu"
+    demo:
+      name: Demo Gebruiker
+      email: demo@example.com
+      password: "$2b$12$gryxb3nOKnUMgp5JyepHFOkAc6YwqNWJvCgFtHzrHOR//8PSqbhW."
+
+cookie:
+  name: smart_health_demo_auth
+  key: "smart_health_demo_secret_cookie_key_2026"
+  expiry_days: 1
+
+preauthorized:
+  emails: []

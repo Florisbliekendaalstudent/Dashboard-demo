@@ -1,7 +1,7 @@
 .dashboard_auth.json
 .streamlit/
 .env
-auth_config.yaml
+# auth_config.yaml
 logs/
 *.parquet
 Tabellen/*.parquet
