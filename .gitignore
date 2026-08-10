@@ -6,4 +6,4 @@ logs/
 *.parquet
 Tabellen/*.parquet
 *.csv
-*.sql
+*.sqlmodels/
