@@ -7,3 +7,4 @@ logs/
 Tabellen/*.parquet
 *.csv
 *.sqlmodels/
+models/
