@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "users": [
+    {
+      "username": "jouw_gebruiker",
+      "password_hash": "pbkdf2_sha256:200000:<salt_hex>:<derived_key_hex>"
+    }
+  ]
+}

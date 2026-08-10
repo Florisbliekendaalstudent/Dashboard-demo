@@ -1,0 +1,395 @@
+"""
+Synthetische Data Generator voor Smart Health Dashboard.
+Genereert geanonimiseerde, realistische testdata in SQLite database `synthetic_health.db`.
+"""
+
+import os
+import random
+import sqlite3
+from datetime import datetime, timedelta
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "synthetic_health.db"
+
+# Seed vastleggen voor formuleerbare reproduceerbare data
+np.random.seed(42)
+random.seed(42)
+
+# Nederlandse steden en PC3/PC4 postcodes met GPS coördinaten
+NL_CITIES = [
+    {"city": "Amsterdam", "pc_prefix": "101", "lat": 52.3676, "long": 4.9041},
+    {"city": "Utrecht", "pc_prefix": "351", "lat": 52.0907, "long": 5.1214},
+    {"city": "Rotterdam", "pc_prefix": "301", "lat": 51.9244, "long": 4.4777},
+    {"city": "Den Haag", "pc_prefix": "251", "lat": 52.0705, "long": 4.3007},
+    {"city": "Eindhoven", "pc_prefix": "561", "lat": 51.4416, "long": 5.4697},
+    {"city": "Groningen", "pc_prefix": "971", "lat": 53.2194, "long": 6.5665},
+    {"city": "Tilburg", "pc_prefix": "501", "lat": 51.5606, "long": 5.0919},
+    {"city": "Almere", "pc_prefix": "131", "lat": 52.3508, "long": 5.2647},
+    {"city": "Breda", "pc_prefix": "481", "lat": 51.5896, "long": 4.7760},
+    {"city": "Nijmegen", "pc_prefix": "651", "lat": 51.8449, "long": 5.8494},
+    {"city": "Venlo", "pc_prefix": "591", "lat": 51.3700, "long": 6.1724},
+    {"city": "Amersfoort", "pc_prefix": "381", "lat": 52.1561, "long": 5.3878},
+    {"city": "Leusden", "pc_prefix": "383", "lat": 52.1319, "long": 5.4294},
+    {"city": "Roermond", "pc_prefix": "604", "lat": 51.1942, "long": 5.9875},
+]
+
+STORES_INFO = [
+    {"id": 1, "name": "Hoofdkantoor Utrecht", "city": "Utrecht", "lat": 52.0907, "long": 5.1214},
+    {"id": 2, "name": "Distributiecentrum Venlo", "city": "Venlo", "lat": 51.3700, "long": 6.1724},
+    {"id": 3, "name": "Filiaal Amsterdam Centrum", "city": "Amsterdam", "lat": 52.3676, "long": 4.9041},
+    {"id": 4, "name": "Logistiek Rotterdam", "city": "Rotterdam", "lat": 51.9244, "long": 4.4777},
+    {"id": 5, "name": "Innovation Lab Eindhoven", "city": "Eindhoven", "lat": 51.4416, "long": 5.4697},
+    {"id": 6, "name": "Service Center Amersfoort", "city": "Amersfoort", "lat": 52.1561, "long": 5.3878},
+]
+
+FACTOR_SLUGS = [
+    (1, "bmi", "BMI"),
+    (2, "heartrisk", "Cardiovasculair Risico"),
+    (3, "stress", "Stress Niveau"),
+    (4, "sleep", "Slaapkwaliteit PSQI"),
+    (5, "exercise", "Lichaamsbeweging"),
+    (6, "fruit", "Fruit Consumptie"),
+    (7, "vegetables", "Groente Consumptie"),
+    (8, "sugar", "Suiker Inname"),
+    (9, "fat", "Verzadigd Vet Inname"),
+    (10, "salt", "Zout Inname"),
+    (11, "alcohol", "Alcohol Consumptie"),
+    (12, "smoking", "Rookgedrag"),
+    (13, "resilience", "Veerkracht / Resilience"),
+    (14, "wellbeing", "Welzijn Score"),
+    (15, "selfefficacy", "Zelfeffectiviteit"),
+    (16, "dass_stress", "DASS Stress"),
+    (17, "dass_anxiety", "DASS Angst"),
+    (18, "dass_depression", "DASS Depressie"),
+    (19, "job_satisfaction", "Werktevredenheid"),
+    (20, "workload", "Werkdruk"),
+    (21, "work_life_balance", "Werk-Privé Balans"),
+    (22, "burnout_risk", "Burn-out Risico"),
+    (23, "vitality", "Vitaliteit"),
+]
+
+PRODUCTS = [
+    {"id": 101, "name": "Leefstijl Coaching Pakket", "price": 149.0},
+    {"id": 102, "name": "Slaapverbetering Training", "price": 79.0},
+    {"id": 103, "name": "Voedingsadvies op Maat", "price": 99.0},
+    {"id": 104, "name": "Stress & Veerkracht Workshop", "price": 129.0},
+    {"id": 105, "name": "Hartgezondheid PMO Check", "price": 199.0},
+]
+
+
+def generate_all():
+    print("🔄 Genereer synthetische gezondheids- en werkplekdata...")
+    conn = sqlite3.connect(DB_PATH)
+    
+    num_users = 450
+    
+    # 1. STORES
+    df_stores = pd.DataFrame([
+        {
+            "id": s["id"],
+            "name": s["name"],
+            "city": s["city"],
+            "is_active": 1,
+            "created_at": "2019-01-01 00:00:00",
+            "deleted_at": None,
+        }
+        for s in STORES_INFO
+    ])
+    df_stores.to_sql("stores", conn, if_exists="replace", index=False)
+
+    # 2. QUESTIONNAIRE FACTORS
+    df_qf = pd.DataFrame([
+        {"id": f[0], "slug": f[1], "name": f[2]} for f in FACTOR_SLUGS
+    ])
+    df_qf.to_sql("questionnaire_factors", conn, if_exists="replace", index=False)
+
+    # 3. USERS, PARTICIPANTS, MY_CLIC_PARTICIPANTS & ADDRESSES
+    users_data = []
+    participants_data = []
+    my_clic_data = []
+    addresses_data = []
+    store_emp_data = []
+    completions_data = []
+    histories_data = []
+
+    start_date = datetime(2019, 1, 1)
+
+    completion_id_counter = 1
+    history_id_counter = 1
+
+    for u_id in range(1, num_users + 1):
+        p_id = u_id
+        store = random.choice(STORES_INFO)
+        store_id = store["id"]
+        city_info = random.choice(NL_CITIES)
+        
+        gender = random.choice([0, 1])  # 0=female, 1=male
+        age = int(np.clip(np.random.normal(41, 11), 20, 67))
+        pc = f"{city_info['pc_prefix']}{random.randint(10, 99)} {random.choice(['AB', 'CD', 'EF', 'GH', 'JK', 'LM', 'NP', 'RS', 'TV', 'XZ'])}"
+
+        user_created = start_date + timedelta(days=random.randint(0, 1800))
+        user_created_str = user_created.strftime("%Y-%m-%d %H:%M:%S")
+        public_id = f"PUB-{100000 + u_id}"
+
+        # Biological & Assessment base metrics
+        bmi = round(float(np.clip(np.random.normal(25.5, 4.2), 17.5, 39.0)), 1)
+        bmi_cat = 2 if bmi >= 30 else (1 if bmi >= 25 else 0)
+
+        heartrisk = round(float(np.clip(np.random.exponential(6.0), 1.0, 32.0)), 1)
+        heartrisk_cat = 2 if heartrisk >= 20 else (1 if heartrisk >= 10 else 0)
+
+        stress_sum = round(float(np.clip(np.random.normal(3.8, 2.1), 0.0, 10.0)), 1)
+        stress_cat = 2 if stress_sum >= 6.5 else (1 if stress_sum >= 3.5 else 0)
+
+        psqi = round(float(np.clip(np.random.normal(6.5, 3.2), 0.0, 18.0)), 1)
+        sleep_cat = 2 if psqi >= 10 else (1 if psqi >= 5 else 0)
+
+        lifestyle_score = round(float(np.clip(8.5 - 0.25 * stress_sum - 0.1 * (bmi - 22 if bmi > 22 else 0), 2.0, 9.8)), 1)
+
+        wai = round(float(np.clip(9.5 - 0.4 * stress_sum + np.random.normal(0, 0.5), 1.0, 10.0)), 1)
+        burnout = round(float(np.clip(1.5 + 0.6 * stress_sum + np.random.normal(0, 0.4), 0.0, 10.0)), 1)
+        vitality = round(float(np.clip(lifestyle_score * 0.9 + np.random.normal(0, 0.5), 1.0, 10.0)), 1)
+        job_sat = round(float(np.clip(7.2 + np.random.normal(0, 1.2), 2.0, 10.0)), 1)
+        workload = round(float(np.clip(5.0 + 0.4 * stress_sum + np.random.normal(0, 1.0), 1.0, 10.0)), 1)
+        exhaustion = round(float(np.clip(burnout * 0.95, 0.0, 10.0)), 1)
+
+        fruit = round(float(np.clip(np.random.normal(1.8, 0.8), 0.0, 5.0)), 1)
+        vegetables = round(float(np.clip(np.random.normal(220, 80), 30.0, 500.0)), 0)
+        sugar = round(float(np.clip(np.random.normal(45, 20), 5.0, 140.0)), 0)
+        fat = round(float(np.clip(np.random.normal(28, 10), 5.0, 75.0)), 0)
+        natrium = round(float(np.clip(np.random.normal(2400, 600), 600.0, 5000.0)), 0)
+        alcohol = round(float(np.clip(np.random.exponential(3.5), 0.0, 24.0)), 1)
+        steps = int(np.clip(np.random.normal(7800, 2500), 1500, 18000))
+        activity_min = int(np.clip(np.random.normal(180, 70), 20, 500))
+        smoking = 1 if random.random() < 0.14 else 0
+
+        resilience = round(float(np.clip(np.random.normal(6.8, 1.5), 1.0, 10.0)), 1)
+        wellbeing = round(float(np.clip(np.random.normal(7.1, 1.4), 1.0, 10.0)), 1)
+        self_efficacy = round(float(np.clip(np.random.normal(7.3, 1.3), 1.0, 10.0)), 1)
+        dass_stress = round(float(np.clip(stress_sum * 3.5, 0.0, 42.0)), 1)
+        dass_anxiety = round(float(np.clip(np.random.exponential(4.0), 0.0, 36.0)), 1)
+        dass_depression = round(float(np.clip(np.random.exponential(4.5), 0.0, 42.0)), 1)
+
+        # Generate 1 to 4 historical survey completions per participant over time
+        num_completions = random.choices([1, 2, 3, 4], weights=[0.4, 0.3, 0.2, 0.1])[0]
+        comp_date = user_created
+
+        for c_idx in range(num_completions):
+            comp_date_str = comp_date.strftime("%Y-%m-%d %H:%M:%S")
+            c_id = completion_id_counter
+            completion_id_counter += 1
+
+            completions_data.append({
+                "id": c_id,
+                "participant_id": p_id,
+                "created_at": comp_date_str,
+                "updated_at": comp_date_str,
+                "status": "completed",
+            })
+
+            # Time progression simulation (scores improve slightly over assessments)
+            trend_factor = c_idx * 0.15
+            c_bmi = round(max(17.0, bmi - trend_factor * 0.4), 1)
+            c_stress = round(max(0.0, stress_sum - trend_factor * 0.5), 1)
+            c_lifestyle = round(min(10.0, lifestyle_score + trend_factor * 0.4), 1)
+            c_wellbeing = round(min(10.0, wellbeing + trend_factor * 0.3), 1)
+
+            factor_values = {
+                1: c_bmi,
+                2: heartrisk,
+                3: c_stress,
+                4: psqi,
+                5: round(min(5.0, 2.5 + trend_factor), 1),
+                6: round(min(5.0, fruit + trend_factor * 0.2), 1),
+                7: vegetables,
+                8: sugar,
+                9: fat,
+                10: natrium,
+                11: alcohol,
+                12: smoking,
+                13: resilience,
+                14: c_wellbeing,
+                15: self_efficacy,
+                16: dass_stress,
+                17: dass_anxiety,
+                18: dass_depression,
+                19: job_sat,
+                20: workload,
+                21: wai,
+                22: burnout,
+                23: vitality,
+            }
+
+            for f_id, f_val in factor_values.items():
+                histories_data.append({
+                    "id": history_id_counter,
+                    "participant_id": p_id,
+                    "questionnaire_factor_id": f_id,
+                    "completion_id": c_id,
+                    "score_value": f_val,
+                    "score_category_value": None,
+                    "completion_created_at": comp_date_str,
+                    "created_at": comp_date_str,
+                    "updated_at": comp_date_str,
+                })
+                history_id_counter += 1
+
+            comp_date += timedelta(days=random.randint(90, 240))
+
+        latest_comp_str = comp_date_str
+
+        # Participant row
+        participants_data.append({
+            "id": p_id,
+            "public_id": public_id,
+            "user_id": u_id,
+            "store_id": store_id,
+            "partner_id": 1,
+            "created_at": user_created_str,
+            "deleted_at": None,
+            "rec_user_gender": gender,
+            "rec_age_current": age,
+            "postal_code": pc,
+            "gender": "Man" if gender == 1 else "Vrouw",
+        })
+
+        # User Consolidated Score row (users_met_scores)
+        users_data.append({
+            "user_id": u_id,
+            "participant_id": p_id,
+            "store_id": store_id,
+            "partner_id": 1,
+            "created_at": user_created_str,
+            "latest_completion_at": latest_comp_str,
+            "rec_user_gender": gender,
+            "rec_age_current": age,
+            "postal_code": pc,
+            "rec_med_bmi": bmi,
+            "rec_med_bmi_cat": bmi_cat,
+            "rec_heartrisk": heartrisk,
+            "rec_heartrisk_cat": heartrisk_cat,
+            "rec_ls_lifestyle_score": lifestyle_score,
+            "rec_ls_stress_sum": stress_sum,
+            "rec_ls_stress_cat": stress_cat,
+            "rec_ls_sleep_psqi_sum": psqi,
+            "rec_ls_sleep_cat": sleep_cat,
+            "rec_ls_score_fruit": round(min(5.0, 1.0 + fruit), 1),
+            "rec_ls_score_vegetables": round(min(5.0, 1.0 + vegetables / 100), 1),
+            "rec_ls_score_sugar": round(min(5.0, 5.0 - sugar / 30), 1),
+            "rec_ls_score_saturated_fat": round(min(5.0, 5.0 - fat / 20), 1),
+            "rec_ls_score_natrium": round(min(5.0, 5.0 - natrium / 1000), 1),
+            "rec_ls_score_alcohol": round(min(5.0, 5.0 - alcohol / 5), 1),
+            "rec_ls_score_exercise": round(min(5.0, steps / 2500), 1),
+            "rec_ls_exercise_steps_per_day": steps,
+            "rec_ls_exercise_physical_activity_minutes_total": activity_min,
+            "rec_ls_alcohol_total_per_week": alcohol,
+            "rec_ls_vegetables_gram_per_day": vegetables,
+            "rec_ls_nutrition_fruit_fruit_per_day": fruit,
+            "rec_ls_nutrition_sugar_per_day": sugar,
+            "rec_ls_nutrition_saturated_fat_per_day": fat,
+            "rec_ls_nutrition_natrium_per_day": natrium,
+            "rec_smoking_answer": smoking,
+            "rec_dass_stress_score": dass_stress,
+            "rec_dass_anxiety_score": dass_anxiety,
+            "rec_dass_depression_score": dass_depression,
+            "rec_resilience_score": resilience,
+            "rec_wellbeing_score": wellbeing,
+            "rec_self_efficacy_score": self_efficacy,
+            "rec_health": round((lifestyle_score + wellbeing) / 2, 1),
+            "rec_asr_wai_score": wai,
+            "rec_asr_burn_out_score": burnout,
+            "rec_asr_vitality_score": vitality,
+            "rec_asr_job_satisfaction_score": job_sat,
+            "rec_asr_workload_score": workload,
+            "rec_asr_exhaustion_score": exhaustion,
+        })
+
+        my_clic_data.append({
+            "id": u_id,
+            "user_id": u_id,
+            "qe_participant_id": public_id,
+            "public_id": public_id,
+            "created_at": user_created_str,
+        })
+
+        addresses_data.append({
+            "id": u_id,
+            "model_type": "user",
+            "model_id": u_id,
+            "app_user_id": u_id,
+            "lat": city_info["lat"] + np.random.normal(0, 0.03),
+            "long": city_info["long"] + np.random.normal(0, 0.04),
+            "city": city_info["city"],
+            "country": "Nederland",
+            "postal_code": pc,
+            "created_at": user_created_str,
+            "updated_at": user_created_str,
+            "deleted_at": None,
+        })
+
+        store_emp_data.append({
+            "id": u_id,
+            "user_id": u_id,
+            "store_id": store_id,
+            "created_at": user_created_str,
+            "deleted_at": None,
+            "archived_at": None,
+        })
+
+    # Save to SQLite tables
+    pd.DataFrame(users_data).to_sql("users_met_scores", conn, if_exists="replace", index=False)
+    pd.DataFrame(participants_data).to_sql("participants", conn, if_exists="replace", index=False)
+    pd.DataFrame(my_clic_data).to_sql("my_clic_participants", conn, if_exists="replace", index=False)
+    pd.DataFrame(addresses_data).to_sql("addresses", conn, if_exists="replace", index=False)
+    pd.DataFrame(store_emp_data).to_sql("store_employees", conn, if_exists="replace", index=False)
+    pd.DataFrame(completions_data).to_sql("completions", conn, if_exists="replace", index=False)
+    pd.DataFrame(histories_data).to_sql("factor_score_histories", conn, if_exists="replace", index=False)
+
+    # 4. PRODUCTS & ORDERS
+    df_products = pd.DataFrame(PRODUCTS)
+    df_products.to_sql("products", conn, if_exists="replace", index=False)
+
+    orders_data = []
+    order_id = 1
+    for u_id in range(1, num_users + 1):
+        if random.random() < 0.35:  # 35% of users purchased something
+            prod = random.choice(PRODUCTS)
+            orders_data.append({
+                "id": order_id,
+                "user_id": u_id,
+                "product_id": prod["id"],
+                "status": "completed",
+                "created_at": (datetime(2022, 1, 1) + timedelta(days=random.randint(0, 1000))).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            order_id += 1
+    pd.DataFrame(orders_data).to_sql("orders", conn, if_exists="replace", index=False)
+
+    # 5. STORE AVERAGE SCORES
+    store_avg_data = []
+    months = pd.date_range("2021-01-01", "2025-12-01", freq="MS")
+    score_slugs = ["rec_med_bmi", "rec_heartrisk", "rec_ls_stress_sum", "rec_ls_lifestyle_score", "rec_wellbeing_score", "rec_resilience_score"]
+    
+    for s in STORES_INFO:
+        s_id = s["id"]
+        for m in months:
+            m_str = m.strftime("%Y-%m-%d")
+            for slug in score_slugs:
+                avg_val = round(float(np.random.normal(6.5 if "score" in slug or "wellbeing" in slug else 12.0, 1.5)), 2)
+                store_avg_data.append({
+                    "store_id": s_id,
+                    "score_slug": slug,
+                    "date": m_str,
+                    "average": avg_val,
+                    "participants_count": random.randint(25, 80),
+                })
+    pd.DataFrame(store_avg_data).to_sql("store_average_scores", conn, if_exists="replace", index=False)
+
+    conn.close()
+    print(f"✅ Synthetische database aangemaakt: {DB_PATH}")
+
+
+if __name__ == "__main__":
+    generate_all()

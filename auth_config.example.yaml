@@ -1,0 +1,21 @@
+credentials:
+  usernames:
+    janedoe:
+      name: Jane Doe
+      email: jane@example.com
+      password: "$2b$12$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      totp_secret: "JBSWY3DPEHPK3PXP"
+    joep:
+      name: Joep Jansen
+      email: joep@example.com
+      password: "$2b$12$YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+      totp_secret: "KRSXG5DSORUGK3TP"
+
+cookie:
+  name: smart_health_auth
+  key: "CHANGE_THIS_COOKIE_KEY_TO_A_LONG_RANDOM_SECRET"
+  expiry_days: 1
+
+enabled: true
+preauthorized:
+  emails: []
