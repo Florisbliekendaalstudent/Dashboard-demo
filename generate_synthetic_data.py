@@ -125,13 +125,17 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
     df_qf.to_sql("questionnaire_factors", conn, if_exists="replace", index=False)
 
     # 3. USERS, PARTICIPANTS, MY_CLIC_PARTICIPANTS & ADDRESSES
-    users_data = []
+    users_met_scores_data = []
+    user_accounts_data = []
     participants_data = []
     my_clic_data = []
     addresses_data = []
     store_emp_data = []
     completions_data = []
     histories_data = []
+    content_data = []
+    content_translation_data = []
+    interactions_data = []
 
     start_date = datetime(2019, 1, 1)
 
@@ -275,7 +279,7 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
         })
 
         # User Consolidated Score row (users_met_scores)
-        users_data.append({
+        users_met_scores_data.append({
             "user_id": u_id,
             "participant_id": p_id,
             "store_id": store_id,
@@ -325,6 +329,12 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
             "rec_asr_exhaustion_score": exhaustion,
         })
 
+        user_accounts_data.append({
+            "id": u_id,
+            "email": f"demo{u_id}@smarthealth.works",
+            "deleted_at": None,
+        })
+
         my_clic_data.append({
             "id": u_id,
             "user_id": u_id,
@@ -357,14 +367,52 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
             "archived_at": None,
         })
 
+    # Synthetic content layer that the article/engagement visualisations can read
+    content_ids = [101, 102, 103, 104, 105]
+    content_titles = [
+        "Gezond bewegen",
+        "Stress in balans",
+        "Voeding en leefstijl",
+        "Slaapverbetering",
+        "Werkdruk begrijpen",
+    ]
+    for idx, content_id in enumerate(content_ids):
+        content_data.append({
+            "id": content_id,
+            "public_id": f"pub-content-{content_id}",
+            "title": content_titles[idx],
+        })
+        content_translation_data.append({
+            "content_id": content_id,
+            "locale": "nl_NL",
+            "title": content_titles[idx],
+        })
+    # A small, deterministic set of content views across the demo users
+    for idx, user_id in enumerate(range(1, min(num_users, 120) + 1)):
+        content_id = content_ids[(idx % len(content_ids))]
+        view_time = (datetime(2024, 1, 1) + timedelta(days=idx % 365)).strftime("%Y-%m-%d %H:%M:%S")
+        interactions_data.append({
+            "id": len(interactions_data) + 1,
+            "interactable_type": "content",
+            "interactable_id": content_id,
+            "user_id": user_id,
+            "type": "view",
+            "created_at": view_time,
+            "updated_at": view_time,
+        })
+
     # Save to SQLite tables
-    pd.DataFrame(users_data).to_sql("users_met_scores", conn, if_exists="replace", index=False)
+    pd.DataFrame(users_met_scores_data).to_sql("users_met_scores", conn, if_exists="replace", index=False)
+    pd.DataFrame(user_accounts_data).to_sql("users", conn, if_exists="replace", index=False)
     pd.DataFrame(participants_data).to_sql("participants", conn, if_exists="replace", index=False)
     pd.DataFrame(my_clic_data).to_sql("my_clic_participants", conn, if_exists="replace", index=False)
     pd.DataFrame(addresses_data).to_sql("addresses", conn, if_exists="replace", index=False)
     pd.DataFrame(store_emp_data).to_sql("store_employees", conn, if_exists="replace", index=False)
     pd.DataFrame(completions_data).to_sql("completions", conn, if_exists="replace", index=False)
     pd.DataFrame(histories_data).to_sql("factor_score_histories", conn, if_exists="replace", index=False)
+    pd.DataFrame(content_data).to_sql("content", conn, if_exists="replace", index=False)
+    pd.DataFrame(content_translation_data).to_sql("content_translations", conn, if_exists="replace", index=False)
+    pd.DataFrame(interactions_data).to_sql("interactions", conn, if_exists="replace", index=False)
 
     # 4. PRODUCTS & ORDERS
     df_products = pd.DataFrame(PRODUCTS)
