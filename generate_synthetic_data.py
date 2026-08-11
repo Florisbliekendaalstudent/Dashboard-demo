@@ -15,8 +15,14 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "synthetic_health.db"
 
 # Seed vastleggen voor formuleerbare reproduceerbare data
-np.random.seed(42)
-random.seed(42)
+DEFAULT_SEED = 42
+
+# The original script was hardwired to 450 participants. Make this
+# configurable so we can produce a controlled demo dataset.
+DEFAULT_NUM_USERS = 400
+
+np.random.seed(DEFAULT_SEED)
+random.seed(DEFAULT_SEED)
 
 # Nederlandse steden en PC3/PC4 postcodes met GPS coördinaten
 NL_CITIES = [
@@ -80,11 +86,23 @@ PRODUCTS = [
 ]
 
 
-def generate_all():
-    print("🔄 Genereer synthetische gezondheids- en werkplekdata...")
+def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
+    """Regenerate the full SQLite demo database.
+
+    Parameters
+    ----------
+    num_users:
+        Number of synthetic participants to generate.
+    seed:
+        Fixed random seed for deterministic synthetic output.
+    """
+    print(f"🔄 Genereer synthetische gezondheids- en werkplekdata voor {num_users} deelnemers...")
+    np.random.seed(seed)
+    random.seed(seed)
+
     conn = sqlite3.connect(DB_PATH)
     
-    num_users = 450
+    num_users = int(num_users)
     
     # 1. STORES
     df_stores = pd.DataFrame([
