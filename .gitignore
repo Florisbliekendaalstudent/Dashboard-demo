@@ -8,3 +8,5 @@ Tabellen/*.parquet
 *.csv
 *.sqlmodels/
 models/
+__pycache__/
+.DS_Store
