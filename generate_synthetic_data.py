@@ -77,6 +77,17 @@ FACTOR_SLUGS = [
     (23, "vitality", "Vitaliteit"),
 ]
 
+QUESTIONNAIRES = [
+    {"id": 1, "slug": "lifestyle", "internal_name": "Leefstijl", "title": "Leefstijl vragenlijst", "name": "Leefstijl vragenlijst"},
+    {"id": 2, "slug": "medical", "internal_name": "Medisch profiel", "title": "Medisch profiel", "name": "Medisch profiel"},
+    {"id": 3, "slug": "stress_sleep", "internal_name": "Stress en slaap", "title": "Stress en slaap", "name": "Stress en slaap"},
+    {"id": 4, "slug": "mental_health", "internal_name": "Mentale gezondheid", "title": "Mentale gezondheid", "name": "Mentale gezondheid"},
+    {"id": 5, "slug": "work_ability", "internal_name": "Werkvermogen", "title": "Werkvermogen", "name": "Werkvermogen"},
+    {"id": 6, "slug": "wellbeing", "internal_name": "Welzijn", "title": "Welzijn", "name": "Welzijn"},
+    {"id": 7, "slug": "nutrition", "internal_name": "Voeding", "title": "Voeding", "name": "Voeding"},
+    {"id": 8, "slug": "engagement", "internal_name": "Engagement", "title": "Engagement", "name": "Engagement"},
+]
+
 PRODUCTS = [
     {"id": 101, "name": "Leefstijl Coaching Pakket", "price": 149.0},
     {"id": 102, "name": "Slaapverbetering Training", "price": 79.0},
@@ -84,6 +95,32 @@ PRODUCTS = [
     {"id": 104, "name": "Stress & Veerkracht Workshop", "price": 129.0},
     {"id": 105, "name": "Hartgezondheid PMO Check", "price": 199.0},
 ]
+
+FACTOR_TO_DASHBOARD_SLUG = {
+    "bmi": "rec_med_bmi",
+    "heartrisk": "rec_heartrisk",
+    "stress": "rec_ls_stress_sum",
+    "sleep": "rec_ls_sleep_psqi_sum",
+    "exercise": "rec_ls_score_exercise",
+    "fruit": "rec_ls_score_fruit",
+    "vegetables": "rec_ls_score_vegetables",
+    "sugar": "rec_ls_score_sugar",
+    "fat": "rec_ls_score_saturated_fat",
+    "salt": "rec_ls_score_natrium",
+    "alcohol": "rec_ls_score_alcohol",
+    "smoking": "rec_smoking_answer",
+    "resilience": "rec_resilience_score",
+    "wellbeing": "rec_wellbeing_score",
+    "selfefficacy": "rec_self_efficacy_score",
+    "dass_stress": "rec_dass_stress_score",
+    "dass_anxiety": "rec_dass_anxiety_score",
+    "dass_depression": "rec_dass_depression_score",
+    "job_satisfaction": "rec_asr_job_satisfaction_score",
+    "workload": "rec_asr_workload_score",
+    "work_life_balance": "rec_asr_work_ability_score",
+    "burnout_risk": "rec_asr_burn_out_score",
+    "vitality": "rec_asr_vitality_score",
+}
 
 
 def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
@@ -133,6 +170,8 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
     store_emp_data = []
     completions_data = []
     histories_data = []
+    completion_scores_data = []
+    latest_score_rows = {}
     content_data = []
     content_translation_data = []
     interactions_data = []
@@ -141,6 +180,7 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
 
     completion_id_counter = 1
     history_id_counter = 1
+    completion_score_id_counter = 1
 
     for u_id in range(1, num_users + 1):
         p_id = u_id
@@ -209,18 +249,26 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
         diabetes_cat = 2 if bmi >= 30 else (1 if bmi >= 25 else 0)
         blood_pressure_cat = 2 if heartrisk >= 15 else (1 if heartrisk >= 8 else 0)
 
-        # Generate 1 to 4 historical survey completions per participant over time
-        num_completions = random.choices([1, 2, 3, 4], weights=[0.4, 0.3, 0.2, 0.1])[0]
+        # Generate multiple historical survey completions per participant over time.
+        # A repeated questionnaire per participant keeps repeat-change analyses non-empty.
+        num_completions = random.choices([3, 4, 5, 6], weights=[0.25, 0.35, 0.25, 0.15])[0]
+        primary_questionnaire_id = random.choice([q["id"] for q in QUESTIONNAIRES])
         comp_date = user_created
 
         for c_idx in range(num_completions):
             comp_date_str = comp_date.strftime("%Y-%m-%d %H:%M:%S")
             c_id = completion_id_counter
             completion_id_counter += 1
+            questionnaire_id = (
+                primary_questionnaire_id
+                if c_idx in {0, num_completions - 1}
+                else random.choice([q["id"] for q in QUESTIONNAIRES])
+            )
 
             completions_data.append({
                 "id": c_id,
                 "participant_id": p_id,
+                "questionnaire_id": questionnaire_id,
                 "created_at": comp_date_str,
                 "updated_at": comp_date_str,
                 "status": "completed",
@@ -260,6 +308,7 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
             }
 
             for f_id, f_val in factor_values.items():
+                factor_slug = next(slug for factor_id, slug, _name in FACTOR_SLUGS if factor_id == f_id)
                 histories_data.append({
                     "id": history_id_counter,
                     "participant_id": p_id,
@@ -271,6 +320,32 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
                     "created_at": comp_date_str,
                     "updated_at": comp_date_str,
                 })
+                completion_scores_data.append({
+                    "id": completion_score_id_counter,
+                    "completion_id": c_id,
+                    "participant_id": p_id,
+                    "questionnaire_id": questionnaire_id,
+                    "slug": factor_slug,
+                    "value": f_val,
+                    "score_value": f_val,
+                    "created_at": comp_date_str,
+                    "updated_at": comp_date_str,
+                })
+                completion_score_id_counter += 1
+                dashboard_slug = FACTOR_TO_DASHBOARD_SLUG.get(factor_slug)
+                if dashboard_slug:
+                    completion_scores_data.append({
+                        "id": completion_score_id_counter,
+                        "completion_id": c_id,
+                        "participant_id": p_id,
+                        "questionnaire_id": questionnaire_id,
+                        "slug": dashboard_slug,
+                        "value": f_val,
+                        "score_value": f_val,
+                        "created_at": comp_date_str,
+                        "updated_at": comp_date_str,
+                    })
+                    completion_score_id_counter += 1
                 history_id_counter += 1
 
             comp_date += timedelta(days=random.randint(90, 240))
@@ -355,7 +430,7 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
 
         user_accounts_data.append({
             "id": u_id,
-            "email": f"demo{u_id}@smarthealth.works",
+            "email": f"demo{u_id}@example.org",
             "deleted_at": None,
         })
 
@@ -425,7 +500,49 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
             "updated_at": view_time,
         })
 
+    for row in users_met_scores_data:
+        pid = row["participant_id"]
+        for slug, value in row.items():
+            if slug.startswith(("rec_", "feat_")):
+                latest_score_rows[(pid, slug)] = {
+                    "participant_id": pid,
+                    "slug": slug,
+                    "value": value,
+                    "created_at": row["latest_completion_at"],
+                    "updated_at": row["latest_completion_at"],
+                }
+
+    for history_row in histories_data:
+        factor_slug = next(
+            slug for factor_id, slug, _name in FACTOR_SLUGS
+            if factor_id == history_row["questionnaire_factor_id"]
+        )
+        latest_score_rows[(history_row["participant_id"], factor_slug)] = {
+            "participant_id": history_row["participant_id"],
+            "slug": factor_slug,
+            "value": history_row["score_value"],
+            "created_at": history_row["completion_created_at"],
+            "updated_at": history_row["completion_created_at"],
+        }
+
+    for s in STORES_INFO:
+        addresses_data.append({
+            "id": 100000 + s["id"],
+            "model_type": "store",
+            "model_id": s["id"],
+            "app_user_id": None,
+            "lat": s["lat"],
+            "long": s["long"],
+            "city": s["city"],
+            "country": "Nederland",
+            "postal_code": f"{s['id']:04d} ZZ",
+            "created_at": "2019-01-01 00:00:00",
+            "updated_at": "2019-01-01 00:00:00",
+            "deleted_at": None,
+        })
+
     # Save to SQLite tables
+    pd.DataFrame(QUESTIONNAIRES).to_sql("questionnaires", conn, if_exists="replace", index=False)
     pd.DataFrame(users_met_scores_data).to_sql("users_met_scores", conn, if_exists="replace", index=False)
     pd.DataFrame(user_accounts_data).to_sql("users", conn, if_exists="replace", index=False)
     pd.DataFrame(participants_data).to_sql("participants", conn, if_exists="replace", index=False)
@@ -434,6 +551,8 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
     pd.DataFrame(store_emp_data).to_sql("store_employees", conn, if_exists="replace", index=False)
     pd.DataFrame(completions_data).to_sql("completions", conn, if_exists="replace", index=False)
     pd.DataFrame(histories_data).to_sql("factor_score_histories", conn, if_exists="replace", index=False)
+    pd.DataFrame(completion_scores_data).to_sql("completion_scores", conn, if_exists="replace", index=False)
+    pd.DataFrame(latest_score_rows.values()).to_sql("latest_scores", conn, if_exists="replace", index=False)
     pd.DataFrame(content_data).to_sql("content", conn, if_exists="replace", index=False)
     pd.DataFrame(content_translation_data).to_sql("content_translations", conn, if_exists="replace", index=False)
     pd.DataFrame(interactions_data).to_sql("interactions", conn, if_exists="replace", index=False)

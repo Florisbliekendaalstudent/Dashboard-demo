@@ -688,6 +688,8 @@ def laad_longitudinale_data(base_pad: Path, db_url: str) -> pd.DataFrame:
             df['store_id'] = df['store_id_new'].combine_first(df['store_id'])
             df = df.drop(columns=['store_id_new'])
     
+    df['completion_created_at'] = pd.to_datetime(df['completion_created_at'], errors='coerce')
+    df = df.dropna(subset=['completion_created_at'])
     df['jaar'] = df['completion_created_at'].dt.year
     # Use all available years (based on data), but keep 2019 and onwards
     jaren_geldig = sorted(df['jaar'].dropna().unique())

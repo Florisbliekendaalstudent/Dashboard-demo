@@ -407,18 +407,27 @@ def _load_latest_scores_wide(db_url: str) -> pd.DataFrame:
     """Laad geselecteerde latest_scores slugs in wide format op participant_id."""
     try:
         engine = create_engine(db_url) if isinstance(db_url, str) else db_url
-        query = text("""
-            SELECT participant_id, slug, value
-            FROM latest_scores
-            WHERE slug LIKE 'rec_%'
-               OR slug LIKE 'feat_%'
-               OR slug = ANY(:legacy_slugs)
-        """)
-        df_latest = pd.read_sql(
-            query,
-            engine,
-            params={'legacy_slugs': list(_get_slug_to_dashboard_mapping().keys())},
-        )
+        legacy_slugs = list(_get_slug_to_dashboard_mapping().keys())
+        if isinstance(db_url, str) and "sqlite" in db_url:
+            placeholders = ", ".join([f":slug_{i}" for i in range(len(legacy_slugs))])
+            query = text(f"""
+                SELECT participant_id, slug, value
+                FROM latest_scores
+                WHERE slug LIKE 'rec_%'
+                   OR slug LIKE 'feat_%'
+                   OR slug IN ({placeholders})
+            """)
+            params = {f"slug_{i}": slug for i, slug in enumerate(legacy_slugs)}
+        else:
+            query = text("""
+                SELECT participant_id, slug, value
+                FROM latest_scores
+                WHERE slug LIKE 'rec_%'
+                   OR slug LIKE 'feat_%'
+                   OR slug = ANY(:legacy_slugs)
+            """)
+            params = {'legacy_slugs': legacy_slugs}
+        df_latest = pd.read_sql(query, engine, params=params)
         if df_latest.empty:
             return pd.DataFrame(columns=['participant_id'])
         df_latest = df_latest.dropna(subset=['participant_id', 'slug'])
