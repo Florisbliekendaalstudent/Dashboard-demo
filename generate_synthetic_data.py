@@ -19,7 +19,7 @@ DEFAULT_SEED = 42
 
 # The original script was hardwired to 450 participants. Make this
 # configurable so we can produce a controlled demo dataset.
-DEFAULT_NUM_USERS = 400
+DEFAULT_NUM_USERS = 300
 
 np.random.seed(DEFAULT_SEED)
 random.seed(DEFAULT_SEED)
@@ -195,6 +195,20 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
         dass_anxiety = round(float(np.clip(np.random.exponential(4.0), 0.0, 36.0)), 1)
         dass_depression = round(float(np.clip(np.random.exponential(4.5), 0.0, 42.0)), 1)
 
+        # Additional rec_* dimensions used by the dashboard/ML surface.
+        # These are score-like normalized synthetic ratings so charts and model
+        # selectors can look them up through the same names as the real object.
+        work_ability_score = round(float(np.clip(wai + np.random.normal(0, 0.55), 0.0, 10.0)), 1)
+        work_ability_cat = 2 if work_ability_score >= 7 else (1 if work_ability_score >= 4 else 0)
+        working_attitude_score = round(float(np.clip(job_sat + np.random.normal(0, 0.7), 0.0, 10.0)), 1)
+        working_attitude_cat = 2 if working_attitude_score >= 7 else (1 if working_attitude_score >= 4 else 0)
+        personal_competences_score = round(float(np.clip(6.3 + (self_efficacy - 5.5) * 0.35 + np.random.normal(0, 0.5), 0.0, 10.0)), 1)
+        personal_competences_cat = 2 if personal_competences_score >= 7 else (1 if personal_competences_score >= 4 else 0)
+        minor_mental_complaints_score = round(float(np.clip(max(0.0, stress_sum * 1.05 + burnout * 0.2), 0.0, 10.0)), 1)
+        minor_mental_complaints_cat = 2 if minor_mental_complaints_score >= 7 else (1 if minor_mental_complaints_score >= 4 else 0)
+        diabetes_cat = 2 if bmi >= 30 else (1 if bmi >= 25 else 0)
+        blood_pressure_cat = 2 if heartrisk >= 15 else (1 if heartrisk >= 8 else 0)
+
         # Generate 1 to 4 historical survey completions per participant over time
         num_completions = random.choices([1, 2, 3, 4], weights=[0.4, 0.3, 0.2, 0.1])[0]
         comp_date = user_created
@@ -322,11 +336,21 @@ def generate_all(num_users: int = DEFAULT_NUM_USERS, seed: int = DEFAULT_SEED):
             "rec_self_efficacy_score": self_efficacy,
             "rec_health": round((lifestyle_score + wellbeing) / 2, 1),
             "rec_asr_wai_score": wai,
+            "rec_asr_work_ability_score": work_ability_score,
+            "rec_asr_work_ability_cat": work_ability_cat,
             "rec_asr_burn_out_score": burnout,
             "rec_asr_vitality_score": vitality,
             "rec_asr_job_satisfaction_score": job_sat,
+            "rec_asr_working_attitude_score": working_attitude_score,
+            "rec_asr_working_attitude_category": working_attitude_cat,
+            "rec_asr_personal_competences_score": personal_competences_score,
+            "rec_asr_personal_competences_category": personal_competences_cat,
+            "rec_asr_minor_mental_complaints_score": minor_mental_complaints_score,
+            "rec_asr_minor_mental_complaints_category": minor_mental_complaints_cat,
             "rec_asr_workload_score": workload,
             "rec_asr_exhaustion_score": exhaustion,
+            "rec_med_diabetes_cat": diabetes_cat,
+            "rec_med_blood_pressure_cat": blood_pressure_cat,
         })
 
         user_accounts_data.append({
