@@ -1401,7 +1401,7 @@ with st.sidebar:
         if min_datum is not None and max_datum is not None:
             st.date_input(
                 tr("Custom datumselectie", lang),
-                value=(min_datum.date(), max_datum.date()),
+                value=(min_datreum.date(), max_datum.date()),
                 min_value=min_datum.date(),
                 max_value=max_datum.date(),
                 key="global_period_custom",
