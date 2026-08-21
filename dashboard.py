@@ -72,8 +72,9 @@ import visualisaties # Import the module first
 from variabelen import VARIABELEN_PER_GROEP, VARIABELEN_DICT
 from i18n import tr, translate_variable_specs, translate_plotly_figure, translate_matplotlib_figure, translate_dataframe
 from analyses import (bereken_datakwaliteit, maak_missende_waarden_plot, bereken_duplicaat_statistieken, bereken_outliers, 
-    maak_outlier_boxplot, bereken_t_toetsen, maak_t_toets_plot, maak_correlatiematrix, maak_scatter_correlatie,
+    maak_outlier_boxplot, bereken_t_toetsen, bereken_t_toets_organisatieonderdeel, maak_t_toets_plot, maak_correlatiematrix, maak_scatter_correlatie,
     genereer_inzichten, analyse_vragenlijst_herhalingen, analyse_vragenlijst_dropoff, RUWE_WAARDEN, LEEFSTIJL_SCORES,
+    CORRELATIE_VARIABELEN,
     analyse_invulfrequentie_vs_scores, INVULFREQUENTIE_SCORE_KOLOMMEN,
     haal_vragenlijsten_overzicht, haal_scores_voor_vragenlijst, analyse_herhaalde_vragenlijst_scoreverandering)
 from visualisaties import (laad_data, laad_longitudinale_data, bereken_verandering, maak_geslacht_plot, maak_leeftijd_plot,
@@ -334,6 +335,50 @@ def get_global_filter_signature() -> tuple:
         tuple(st.session_state.get("global_department_values", ()) or ()),
         tuple(st.session_state.get("global_function_values", ()) or ()),
     )
+
+
+def _heeft_actief_filter() -> bool:
+    """Bepaalt of er een actief globaal filter is toegepast.
+
+    Filters die een subset selecteren:
+    - Geslacht: alleen 'man' of 'vrouw' (niet 'totaal' of 'beide')
+    - Periode: niet 'Sinds start'
+    - Leeftijd: niet alle categorieën geselecteerd
+    - Opdrachtgever: een specifieke store gekozen
+    - Afdeling/functie: een selectie gemaakt
+    """
+    # Geslacht: 'totaal' en 'beide' filteren geen subset
+    if st.session_state.get('global_geslacht', 'totaal') not in ('totaal', 'beide'):
+        return True
+
+    # Periode
+    if st.session_state.get('global_period_preset', 'Sinds start') != 'Sinds start':
+        return True
+    if st.session_state.get('global_period_custom'):
+        return True
+
+    # Leeftijd
+    standaard_leeftijd = tuple(LEEFTIJD_CATEGORIEEN + ['Onbekend'])
+    huidige_leeftijd = tuple(st.session_state.get('global_age_categories', standaard_leeftijd) or ())
+    if huidige_leeftijd != standaard_leeftijd:
+        return True
+
+    # Opdrachtgever
+    if st.session_state.get('global_store_id') is not None:
+        return True
+
+    # Afdeling en functie
+    if st.session_state.get('global_department_values'):
+        return True
+    if st.session_state.get('global_function_values'):
+        return True
+
+    return False
+
+
+def _percentage_label() -> str:
+    """Geeft '% van totaal' of '% van selectie' terug, afhankelijk van actieve filters."""
+    return '% van selectie' if _heeft_actief_filter() else '% van totaal'
 
 
 def load_main_data_filtered_by_store() -> pd.DataFrame:
@@ -620,8 +665,15 @@ def get_outliers(geslacht: str, filter_signature: tuple = ()) -> pd.DataFrame:
     return bereken_outliers(load_main_data_filtered_by_gender_and_store(geslacht))
 
 @st.cache_data
-def get_t_toetsen(filter_signature: tuple = ()) -> pd.DataFrame:
-    return bereken_t_toetsen(load_main_data_filtered_by_store())
+def get_t_toetsen(
+    geselecteerde_variabelen: tuple[str, ...] | None = None,
+    filter_signature: tuple = (),
+) -> pd.DataFrame:
+    selectie = list(geselecteerde_variabelen) if geselecteerde_variabelen is not None else None
+    return bereken_t_toetsen(
+        load_main_data_filtered_by_store(),
+        geselecteerde_variabelen=selectie,
+    )
 
 @st.cache_data
 def get_platform_groei(participant_ids: tuple[int, ...] = tuple()):
@@ -1331,6 +1383,20 @@ with st.sidebar:
         key="global_period_preset",
         label_visibility="collapsed",
     )
+    # Toelichting bij de periodefilter: klein en lichtgrijs via st.caption.
+    # apply_global_filters gebruikt de eerste beschikbare datumkolom uit
+    # DATUM_KOLOMMEN; dezelfde kolom wordt hier getoond.
+    if datumkolom:
+        st.caption(tr(
+            "Filtert op de datum in '{kolom}'.",
+            lang,
+            kolom=datumkolom,
+        ))
+    else:
+        st.caption(tr(
+            "Er is geen datumkolom beschikbaar om op te filteren.",
+            lang,
+        ))
     if st.session_state.get("global_period_preset") == "Custom":
         if min_datum is not None and max_datum is not None:
             st.date_input(
@@ -1576,24 +1642,26 @@ if pagina == "🏠 Overzicht":
     postal_count = df['postal_code'].notna().sum() if 'postal_code' in df.columns else 0
     c2.metric(t("Met postcode"), f"{postal_count:,}")
 
+    pct_label = _percentage_label()
+
     hr_count, _, hr_pct = _bereken_kpi_telling(df, *OVERZICHTS_KPI_SPECS['Hoog hart risico'])
     c3.metric(t("Hoog hart risico"), f"{hr_count:,}",
-              delta=f"{hr_pct:.1f}% van totaal",
+              delta=f"{hr_pct:.1f}{pct_label}",
               delta_color="off")
 
     stress_count, _, stress_pct = _bereken_kpi_telling(df, *OVERZICHTS_KPI_SPECS['Hoog stress'])
     c4.metric(t("Hoog stress"), f"{stress_count:,}",
-              delta=f"{stress_pct:.1f}% van totaal",
+              delta=f"{stress_pct:.1f}{pct_label}",
               delta_color="off")
 
     bmi_count, _, bmi_pct = _bereken_kpi_telling(df, *OVERZICHTS_KPI_SPECS['Overgewicht'])
     c5.metric(t("Overgewicht"), f"{bmi_count:,}",
-              delta=f"{bmi_pct:.1f}% van totaal",
+              delta=f"{bmi_pct:.1f}{pct_label}",
               delta_color="off")
 
     slaap_count, _, slaap_pct = _bereken_kpi_telling(df, *OVERZICHTS_KPI_SPECS['Slechte slaap'])
     c6.metric(t("Slechte slaap"), f"{slaap_count:,}",
-              delta=f"{slaap_pct:.1f}% van totaal",
+              delta=f"{slaap_pct:.1f}{pct_label}",
               delta_color="off")
 
     bew_count, _, bew_pct = _bereken_kpi_telling(df, *OVERZICHTS_KPI_SPECS['Niet fysiek actief'])
@@ -1625,10 +1693,15 @@ if pagina == "🏠 Overzicht":
     with tab_cardio:
         c1, c2 = st.columns(2)
         with c1: p(maak_heartrisk_plot(df, lang=lang), participants_df=df)
-        with c2: p(maak_heartrisk_naar_geslacht_plot(df, lang=lang, geslacht=geslacht), participants_df=df)
+        # "Cardiovasculair risico naar geslacht" is alleen een andere visualisatie
+        # bij geslacht == 'beide'. Bij 'totaal', 'man' of 'vrouw' toont
+        # maak_heartrisk_naar_geslacht_plot dezelfde 'Cardiovasculair risico'-plot,
+        # dus tonen we die dan niet nogmaals om duplicaten te voorkomen.
+        if geslacht == 'beide':
+            with c2: p(maak_heartrisk_naar_geslacht_plot(df, lang=lang, geslacht=geslacht), participants_df=df)
 
     with tab_bmi:
-        p(maak_bmi_plot(df, lang=lang), participants_df=df)
+        p(maak_bmi_plot(df, lang=lang, geslacht=geslacht), participants_df=df)
 
     with tab_stress:
         p(maak_stress_plot(df, lang=lang), participants_df=df)
@@ -2164,10 +2237,28 @@ elif pagina == "⚖️ T-toets man vs vrouw":
         t("Welch t-toets per variabele. Cohen's d = effectgrootte. Blauw = mannen hoger, roze = vrouwen hoger. Doorzichtig = niet significant (p ≥ 0.05).")
     )
 
-    df_toetsen = get_t_toetsen(filter_signature=get_global_filter_signature())
     df_toets_basis = load_main_data_filtered_by_store()
+    toets_variabelen = {**LEEFSTIJL_SCORES, **RUWE_WAARDEN}
+    beschikbare_toets_variabelen = [
+        label for label, kolom in toets_variabelen.items()
+        if kolom in df_toets_basis.columns
+    ]
+    geselecteerde_toets_variabelen = st.multiselect(
+        t("Variabelen voor t-toets"),
+        beschikbare_toets_variabelen,
+        default=beschikbare_toets_variabelen,
+        key="t_toets_variabelen",
+    )
+    df_toetsen = get_t_toetsen(
+        tuple(geselecteerde_toets_variabelen),
+        filter_signature=get_global_filter_signature(),
+    )
 
-    tab1, tab2 = st.tabs([t("Forest plot"), t("Volledige tabel")])
+    tab1, tab2, tab3 = st.tabs([
+        t("Forest plot"),
+        t("Volledige tabel"),
+        t("Organisatieonderdeel vs totaal"),
+    ])
 
     with tab1:
         p(maak_t_toets_plot(df_toetsen), participants_df=df_toets_basis)
@@ -2201,6 +2292,58 @@ elif pagina == "⚖️ T-toets man vs vrouw":
         csv = df_tabel.to_csv(index=False).encode('utf-8')
         st.download_button(t("📥 Download als CSV"), csv, "t_toetsen.csv", "text/csv")
 
+    with tab3:
+        # Pas overige globale filters toe, maar niet het afdelingsfilter zelf;
+        # anders zou er geen onafhankelijke vergelijkingsgroep overblijven.
+        df_organisatie = apply_global_filters(
+            load_main_data(),
+            geslacht=None,
+            include_extra=False,
+        )
+        organisatiekolom = _eerste_bestaande_kolom(
+            df_organisatie,
+            AFDELING_KOLOMMEN,
+        )
+        if not organisatiekolom and 'store_id' in df_organisatie.columns:
+            organisatiekolom = 'store_id'
+
+        if not organisatiekolom:
+            st.info(t("Geen organisatieonderdeel beschikbaar in de huidige data."))
+        else:
+            organisatie_opties = _opties_voor_tekstfilter(
+                df_organisatie,
+                organisatiekolom,
+            )
+            if not organisatie_opties:
+                st.info(t("Geen organisatieonderdeel beschikbaar in de huidige data."))
+            else:
+                geselecteerd_onderdeel = st.selectbox(
+                    t("Organisatieonderdeel") if organisatiekolom != 'store_id' else t("Opdrachtgever (ID)"),
+                    organisatie_opties,
+                    key="t_toets_organisatieonderdeel",
+                )
+                geselecteerde_org_variabelen = st.multiselect(
+                    t("Variabelen voor t-toets"),
+                    beschikbare_toets_variabelen,
+                    default=beschikbare_toets_variabelen,
+                    key="t_toets_organisatie_variabelen",
+                )
+                df_organisatie_toets = bereken_t_toets_organisatieonderdeel(
+                    df_organisatie,
+                    organisatiekolom,
+                    geselecteerd_onderdeel,
+                    geselecteerde_org_variabelen,
+                )
+                st.caption(t(
+                    "Vergelijkt het geselecteerde organisatieonderdeel met alle overige onderdelen binnen de actuele selectie. "
+                    "De tabel toont de Welch t-statistiek en p-waarde; minimaal 10 deelnemers per groep.",
+                ))
+                st.dataframe(
+                    translate_dataframe(df_organisatie_toets, lang),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
 # ═════════════════════════════════════════════════════════════════════════════
 # CORRELATIES
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2215,6 +2358,16 @@ elif pagina == "🔗 Correlaties":
     tab1, tab2 = st.tabs([t("Correlatiematrix"), t("Scatterplot")])
 
     with tab1:
+        beschikbare_correlatie_variabelen = [
+            label for label, kolom in CORRELATIE_VARIABELEN.items()
+            if kolom in df.columns
+        ]
+        geselecteerde_correlatie_variabelen = st.multiselect(
+            t("Variabelen voor correlatie"),
+            beschikbare_correlatie_variabelen,
+            default=beschikbare_correlatie_variabelen,
+            key="correlatie_variabelen",
+        )
         min_n = st.slider(
             t("Minimaal aantal deelnemers"),
             min_value=1,
@@ -2222,7 +2375,14 @@ elif pagina == "🔗 Correlaties":
             value=5,
             help=t("Alleen variabelen met ten minste dit aantal deelnemers worden meegenomen."),
         )
-        p(maak_correlatiematrix(df, min_n=min_n), participants_df=df)
+        p(
+            maak_correlatiematrix(
+                df,
+                min_n=min_n,
+                geselecteerde_variabelen=geselecteerde_correlatie_variabelen,
+            ),
+            participants_df=df,
+        )
         st.caption(t("Alleen variabelen met minimaal {min_n} deelnemers worden meegenomen.", min_n=min_n))
 
     with tab2:
@@ -2321,6 +2481,7 @@ elif pagina == "🏢 Per opdrachtgever":
             c1.metric(t("Opdrachtgevers getoond"), n_stores)
             c2.metric(f"Totaalgemiddelde {indicator_keuze}", f"{totaal_gem:.2f}")
             p(fig)
+            st.caption((fig.layout.meta or {}).get('categorie_toelichting', ''))
             st.caption(
                 t("Let op: verschillen tussen opdrachtgevers kunnen samenhangen met de samenstelling van de populatie (leeftijd, geslacht) en niet alleen met de effectiviteit van interventies.")
             )

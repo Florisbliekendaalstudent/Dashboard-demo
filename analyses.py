@@ -56,6 +56,27 @@ RUWE_WAARDEN = {
     'Leeftijd':                 'rec_age_current',
 }
 
+CORRELATIE_VARIABELEN = {
+    'Leefstijlscore':     'rec_ls_lifestyle_score',
+    'BMI (waarde)':       'rec_med_bmi',
+    'Heartrisk (score)':  'rec_heartrisk',
+    'Framingham score':   'rec_framingham_non_invasive',
+    'Stress (score)':     'rec_ls_stress_sum',
+    'DASS stress':        'rec_dass_stress_score',
+    'DASS angst':         'rec_dass_anxiety_score',
+    'DASS depressie':     'rec_dass_depression_score',
+    'Slaap PSQI':         'rec_ls_sleep_psqi_sum',
+    'Veerkracht':         'rec_resilience_score',
+    'Welzijn':            'rec_wellbeing_score',
+    'Werkvermogen (WAI)': 'rec_asr_wai_score',
+    'Leeftijd':           'rec_age_current',
+    'Fruit (stuks/dag)':  'rec_ls_nutrition_fruit_fruit_per_day',
+    'Groenten (gram/dag)': 'rec_ls_vegetables_gram_per_day',
+    'Alcohol (glazen/week)': 'rec_ls_alcohol_total_per_week',
+    'Natrium (mg/dag)':   'rec_ls_nutrition_natrium_per_day',
+    'Suiker (gram/dag)':  'rec_ls_nutrition_sugar_per_day',
+}
+
 OUTLIER_GRENZEN = {
     'rec_ls_nutrition_natrium_per_day':         8000,
     'rec_ls_nutrition_sugar_per_day':           300,
@@ -560,7 +581,10 @@ def maak_outlier_boxplot(df: pd.DataFrame, variabele_label: str,
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. T-TOETS MANNEN VS VROUWEN
 # ══════════════════════════════════════════════════════════════════════════════
-def bereken_t_toetsen(df: pd.DataFrame) -> pd.DataFrame:
+def bereken_t_toetsen(
+    df: pd.DataFrame,
+    geselecteerde_variabelen: list[str] | tuple[str, ...] | None = None,
+) -> pd.DataFrame:
     """
     Voert Welch t-toets uit voor alle continue variabelen,
     mannen vs vrouwen. Rapporteert t-statistiek, p-waarde en Cohen's d.
@@ -571,6 +595,12 @@ def bereken_t_toetsen(df: pd.DataFrame) -> pd.DataFrame:
     vrouwen = df2[df2['geslacht'] == 0]
 
     alle_kolommen = {**LEEFSTIJL_SCORES, **RUWE_WAARDEN}
+    if geselecteerde_variabelen is not None:
+        selectie = set(geselecteerde_variabelen)
+        alle_kolommen = {
+            label: kolom for label, kolom in alle_kolommen.items()
+            if label in selectie
+        }
     rijen = []
 
     for label, kolom in alle_kolommen.items():
@@ -609,9 +639,77 @@ def bereken_t_toetsen(df: pd.DataFrame) -> pd.DataFrame:
             'Effectgrootte':    effect,
         })
 
-    return (pd.DataFrame(rijen)
-            .sort_values('p-waarde')
-            .reset_index(drop=True))
+    resultaat = pd.DataFrame(rijen)
+    if resultaat.empty:
+        return pd.DataFrame(columns=[
+            'Variabele', 'Gemiddelde man', 'Gemiddelde vrouw', 'Verschil',
+            'N man', 'N vrouw', 't-statistiek', 'p-waarde', 'Significant',
+            "Cohen's d", 'Effectgrootte',
+        ])
+    return resultaat.sort_values('p-waarde').reset_index(drop=True)
+
+
+def bereken_t_toets_organisatieonderdeel(
+    df: pd.DataFrame,
+    organisatiekolom: str,
+    organisatieonderdeel: str,
+    geselecteerde_variabelen: list[str] | tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    """Vergelijk een organisatieonderdeel met de overige geselecteerde populatie.
+
+    De vergelijkingsgroep is bewust het totaal exclusief het geselecteerde
+    onderdeel, zodat de twee groepen onafhankelijk zijn voor een Welch t-toets.
+    Dezelfde ondergrens van tien deelnemers per groep als de bestaande t-toets
+    man versus vrouw wordt gebruikt.
+    """
+    kolommen = {**LEEFSTIJL_SCORES, **RUWE_WAARDEN}
+    if geselecteerde_variabelen is not None:
+        selectie = set(geselecteerde_variabelen)
+        kolommen = {
+            label: kolom for label, kolom in kolommen.items()
+            if label in selectie
+        }
+
+    if organisatiekolom not in df.columns:
+        return pd.DataFrame()
+
+    onderdelen = df[organisatiekolom].fillna('Onbekend').astype(str).str.strip().replace('', 'Onbekend')
+    onderdeel = df[onderdelen.eq(organisatieonderdeel)]
+    overige = df[~onderdelen.eq(organisatieonderdeel)]
+    rijen = []
+
+    for label, kolom in kolommen.items():
+        if kolom not in df.columns:
+            continue
+        onderdeel_waarden = pd.to_numeric(onderdeel[kolom], errors='coerce').dropna()
+        overige_waarden = pd.to_numeric(overige[kolom], errors='coerce').dropna()
+        if len(onderdeel_waarden) < 10 or len(overige_waarden) < 10:
+            continue
+
+        t_stat, p_waarde = stats.ttest_ind(
+            onderdeel_waarden,
+            overige_waarden,
+            equal_var=False,
+        )
+        rijen.append({
+            'Variabele': label,
+            'Gemiddelde onderdeel': round(onderdeel_waarden.mean(), 2),
+            'Gemiddelde overige': round(overige_waarden.mean(), 2),
+            'Verschil': round(onderdeel_waarden.mean() - overige_waarden.mean(), 2),
+            'N onderdeel': len(onderdeel_waarden),
+            'N overige': len(overige_waarden),
+            't-statistiek': round(t_stat, 3),
+            'p-waarde': round(p_waarde, 4),
+            'Significant': 'Ja ✓' if p_waarde < 0.05 else 'Nee',
+        })
+
+    if not rijen:
+        return pd.DataFrame(columns=[
+            'Variabele', 'Gemiddelde onderdeel', 'Gemiddelde overige',
+            'Verschil', 'N onderdeel', 'N overige', 't-statistiek',
+            'p-waarde', 'Significant',
+        ])
+    return pd.DataFrame(rijen).sort_values('p-waarde').reset_index(drop=True)
 
 
 def maak_t_toets_plot(df_toetsen: pd.DataFrame) -> go.Figure:
@@ -619,6 +717,15 @@ def maak_t_toets_plot(df_toetsen: pd.DataFrame) -> go.Figure:
     Forest plot van Cohen's d per variabele.
     Geeft visueel inzicht in richting en grootte van het verschil.
     """
+    if df_toetsen.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text='Geen resultaten voor de geselecteerde variabelen.',
+            showarrow=False,
+            font=dict(size=14),
+        )
+        return fig
+
     df = df_toetsen.copy()
     df = df.sort_values("Cohen's d")
 
@@ -664,39 +771,36 @@ def maak_t_toets_plot(df_toetsen: pd.DataFrame) -> go.Figure:
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. CORRELATIEMATRIX
 # ══════════════════════════════════════════════════════════════════════════════
-def maak_correlatiematrix(df: pd.DataFrame,
-                           min_n: int = 200, lang: str = 'nl') -> go.Figure:
+def maak_correlatiematrix(
+    df: pd.DataFrame,
+    min_n: int = 200,
+    lang: str = 'nl',
+    geselecteerde_variabelen: list[str] | tuple[str, ...] | None = None,
+) -> go.Figure:
     """
     Pearson correlatiematrix van leefstijlscores.
     Alleen variabelen met voldoende data (min_n) worden meegenomen.
     """
     kolommen = {}
-    for label, kolom in {
-        'Leefstijlscore':     'rec_ls_lifestyle_score',
-        'BMI (waarde)':       'rec_med_bmi',
-        'Heartrisk (score)':  'rec_heartrisk',
-        'Framingham score':   'rec_framingham_non_invasive',
-        'Stress (score)':     'rec_ls_stress_sum',
-        'DASS stress':        'rec_dass_stress_score',
-        'DASS angst':         'rec_dass_anxiety_score',
-        'DASS depressie':     'rec_dass_depression_score',
-        'Slaap PSQI':         'rec_ls_sleep_psqi_sum',
-        'Veerkracht':         'rec_resilience_score',
-        'Welzijn':            'rec_wellbeing_score',
-        'Werkvermogen (WAI)': 'rec_asr_wai_score',
-        'Leeftijd':           'rec_age_current',
-        'Fruit (stuks/dag)':  'rec_ls_nutrition_fruit_fruit_per_day',
-        'Groenten (gram/dag)':'rec_ls_vegetables_gram_per_day',
-        'Alcohol (glazen/week)': 'rec_ls_alcohol_total_per_week',
-        'Natrium (mg/dag)':   'rec_ls_nutrition_natrium_per_day',
-        'Suiker (gram/dag)':  'rec_ls_nutrition_sugar_per_day',
-    }.items():
+    selectie = set(geselecteerde_variabelen) if geselecteerde_variabelen is not None else None
+    for label, kolom in CORRELATIE_VARIABELEN.items():
+        if selectie is not None and label not in selectie:
+            continue
         if kolom not in df.columns:
             continue
         s = pd.to_numeric(df[kolom], errors='coerce')
         if s.notna().sum() >= min_n:
             label_bold = f"<b>{tr(label, lang)}</b>"
             kolommen[label_bold] = s
+
+    if len(kolommen) < 2:
+        fig = go.Figure()
+        fig.add_annotation(
+            text=tr('Selecteer minimaal twee variabelen met voldoende data.', lang),
+            showarrow=False,
+            font=dict(size=14),
+        )
+        return fig
 
     df_corr = pd.DataFrame(kolommen).corr(method='pearson')
 

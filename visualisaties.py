@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 import logging
-from helpers import get_numeric_clean, filter_by_gender, normalize_to_scale
+from helpers import get_numeric_clean, filter_by_gender
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -78,6 +78,55 @@ from kleuren import (
     BMI_LABELS, BMI_COLORS,
 )
 from i18n import tr
+
+
+# Drempels die voor de snapshotweergave beschikbaar zijn. De leefstijlscore
+# heeft in de huidige bron geen vastgelegde categoriegrenzen; die drie grenzen
+# zijn daarom een expliciete, te valideren aanname.
+SCORE_CATEGORIEEN = {
+    'rec_ls_lifestyle_score': {
+        'bins': [-np.inf, 3.5, 7.5, np.inf],
+        'labels': ['Slecht', 'Matig', 'Goed'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Aanname: leefstijlscore 1-3 = slecht, 4-7 = matig, 8-10 = goed.',
+    },
+    'rec_med_bmi': {
+        'bins': [-np.inf, 18.5, 25.0, np.inf],
+        'labels': ['Matig', 'Goed', 'Slecht'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Gebaseerd op de bestaande BMI-grenzen 18,5 en 25.',
+    },
+    'rec_ls_stress_sum': {
+        'bins': [-np.inf, 5.0, 14.0, np.inf],
+        'labels': ['Goed', 'Matig', 'Slecht'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Gebaseerd op de bestaande stressgrenzen 5 en 14.',
+    },
+    'rec_ls_sleep_psqi_sum': {
+        'bins': [-np.inf, 5.0, 10.0, np.inf],
+        'labels': ['Goed', 'Matig', 'Slecht'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Gebaseerd op de bestaande PSQI-grenzen 5 en 10.',
+    },
+    'rec_dass_stress_score': {
+        'bins': [-np.inf, 14.0, 18.0, np.inf],
+        'labels': ['Goed', 'Matig', 'Slecht'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Gebaseerd op de bestaande DASS-stressgrenzen 14 en 18.',
+    },
+    'rec_dass_anxiety_score': {
+        'bins': [-np.inf, 7.0, 9.0, np.inf],
+        'labels': ['Goed', 'Matig', 'Slecht'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Gebaseerd op de bestaande DASS-angstgrenzen 7 en 9.',
+    },
+    'rec_dass_depression_score': {
+        'bins': [-np.inf, 9.0, 13.0, np.inf],
+        'labels': ['Goed', 'Matig', 'Slecht'],
+        'kleuren': {'Slecht': '#E74C3C', 'Matig': '#E87722', 'Goed': '#2ECC71'},
+        'toelichting': 'Gebaseerd op de bestaande DASS-depressiegrenzen 9 en 13.',
+    },
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -431,11 +480,44 @@ def maak_heartrisk_naar_geslacht_plot(df: pd.DataFrame, lang: str = 'nl', geslac
 
 
 # ── BMI ────────────────────────────────────────────────────────────────────────
-def maak_bmi_plot(df: pd.DataFrame, lang: str = 'nl') -> go.Figure:
+def maak_bmi_plot(df: pd.DataFrame, lang: str = 'nl', geslacht: str = 'totaal') -> go.Figure:
+    bmi_labels = {k: tr(v, lang) for k, v in BMI_LABELS.items()}
+    volgorde = [bmi_labels[k] for k in sorted(bmi_labels)]
+
+    # Bij de vergelijking: man en vrouw naast elkaar tonen (gegroepeerde bar chart).
+    if geslacht == 'beide':
+        df2 = df.copy()
+        df2['bmi_code'] = _numeriek(df, 'rec_med_bmi_cat')
+        df2['geslacht_code'] = pd.to_numeric(df2['rec_user_gender'], errors='coerce')
+        df2 = df2.dropna(subset=['bmi_code', 'geslacht_code'])
+        df2['bmi_label'] = df2['bmi_code'].map(bmi_labels)
+        gender_labels = {k: tr(v, lang) for k, v in GENDER_LABELS.items()}
+        df2['geslacht_label'] = df2['geslacht_code'].map(gender_labels)
+        df2 = df2.dropna(subset=['bmi_label', 'geslacht_label'])
+
+        counts = df2.groupby(['geslacht_label', 'bmi_label']).size().reset_index(name='aantal')
+        totaal = counts.groupby('geslacht_label')['aantal'].transform('sum')
+        counts['percentage'] = counts['aantal'] / totaal * 100
+
+        kleur_map = {gender_labels[1]: GENDER_COLORS['Man'], gender_labels[0]: GENDER_COLORS['Vrouw']}
+        fig = px.bar(
+            counts, x='bmi_label', y='percentage',
+            color='geslacht_label',
+            barmode='group',
+            color_discrete_map=kleur_map,
+            labels={'bmi_label': '', 'percentage': tr('Percentage (%)', lang), 'geslacht_label': tr('Geslacht', lang)},
+            title=tr('BMI categorie verdeling', lang),
+            category_orders={
+                'bmi_label': volgorde,
+                'geslacht_label': [tr('Man', lang), tr('Vrouw', lang)],
+            },
+        )
+        return fig
+
+    # Anders: huidige weergave (enkele groep)
     s = _numeriek(df, 'rec_med_bmi_cat')
-    counts = _tel_percentages(s, BMI_LABELS)
-    kleur_map = {v: BMI_COLORS[k] for k, v in BMI_LABELS.items()}
-    volgorde = [BMI_LABELS[k] for k in sorted(BMI_LABELS.keys())]
+    counts = _tel_percentages(s, bmi_labels)
+    kleur_map = {v: BMI_COLORS[k] for k, v in bmi_labels.items()}
     fig = px.bar(
         counts, x='label', y='percentage',
         color='label',
@@ -468,38 +550,46 @@ def maak_stress_plot(df: pd.DataFrame, lang: str = 'nl') -> go.Figure:
 
 # ── Leefstijlscore ─────────────────────────────────────────────────────────────
 def maak_leefstijl_score_plot(df: pd.DataFrame, geslacht: str = 'beide', lang: str = 'nl') -> go.Figure:
+    """Genereert de leefstijlscore als groen/oranje/rode categorieën."""
     df2 = df.copy()
     df2['rec_ls_lifestyle_score'] = pd.to_numeric(df2['rec_ls_lifestyle_score'], errors='coerce')
     df2 = df2.dropna(subset=['rec_ls_lifestyle_score'])
+
+    config = SCORE_CATEGORIEEN['rec_ls_lifestyle_score']
+    labels = [tr(label, lang) for label in config['labels']]
+    kleuren = {tr(label, lang): kleur for label, kleur in config['kleuren'].items()}
+    df2['leefstijl_cat'] = pd.cut(
+        df2['rec_ls_lifestyle_score'],
+        bins=config['bins'],
+        labels=labels,
+        include_lowest=True,
+    )
 
     if geslacht == 'beide':
         gender_labels = {k: tr(v, lang) for k, v in GENDER_LABELS.items()}
         df2['geslacht_label'] = pd.to_numeric(df2['rec_user_gender'], errors='coerce').map(gender_labels)
         df2 = df2.dropna(subset=['geslacht_label'])
-        kleur_map = {gender_labels[k]: GENDER_COLORS[k] for k in gender_labels}
         fig = px.histogram(
-            df2, x='rec_ls_lifestyle_score',
-            color='geslacht_label',
-            color_discrete_map=kleur_map,
-            barmode='overlay',
-            opacity=0.75,
-            labels={'rec_ls_lifestyle_score': tr('Leefstijlscore', lang), 'count': tr('Aantal', lang), 'geslacht_label': tr('Geslacht', lang)},
+            df2,
+            x='leefstijl_cat',
+            color='leefstijl_cat',
+            color_discrete_map=kleuren,
+            facet_col='geslacht_label',
+            labels={'leefstijl_cat': tr('Leefstijlscore categorie', lang), 'count': tr('Aantal', lang), 'geslacht_label': tr('Geslacht', lang)},
             title=tr('Verdeling leefstijlscore naar geslacht', lang),
-            category_orders={'geslacht_label': [gender_labels[1], gender_labels[0]]},
+            category_orders={'leefstijl_cat': labels, 'geslacht_label': [gender_labels[1], gender_labels[0]]},
         )
-        fig.update_layout(legend_title_text=tr('Geslacht', lang))
+        fig.update_layout(legend_title_text=tr('Categorie', lang))
     else:
         fig = px.histogram(
-            df2, x='rec_ls_lifestyle_score',
-            nbins=30,
-            color_discrete_sequence=[HOOFD_KLEUR],
-            labels={'rec_ls_lifestyle_score': tr('Leefstijlscore', lang), 'count': tr('Aantal', lang)},
+            df2, x='leefstijl_cat',
+            color='leefstijl_cat',
+            color_discrete_map=kleuren,
+            labels={'leefstijl_cat': tr('Leefstijlscore categorie', lang), 'count': tr('Aantal', lang)},
             title=tr('Verdeling leefstijlscore', lang),
         )
 
-    fig.update_traces(xbins=dict(start=1.0, end=5.0, size=0.5))
-    fig.update_xaxes(range=[0, 5])
-    fig.update_xaxes(range=[1, 5])
+    fig.update_layout(bargap=0.1)
     return fig
 
 
@@ -2915,7 +3005,7 @@ def maak_scores_per_opdrachtgever(base_pad, db_url: str,
     # n_met_score  = aantal deelnemers met een ingevulde score (noemer voor gemiddelde) # type: ignore
     agg = (df_expanded.groupby(['store_id', 'store_naam'])
            .agg(
-               gemiddelde=('score', 'mean'), # Gebruik de intern genormaliseerde 'score' kolom
+               gemiddelde=('score', 'mean'),
                n_met_score=('score', 'count'),
                n_deelnemers=('participant_id', 'nunique'),
            )
@@ -2938,17 +3028,33 @@ def maak_scores_per_opdrachtgever(base_pad, db_url: str,
     totaal_gem = _weighted_average(agg['gemiddelde'], agg['n_met_score'])
     if pd.isna(totaal_gem): totaal_gem = 0
 
-    kleuren = [
-        '#2ECC71' if g >= totaal_gem else '#E74C3C'
-        for g in agg['gemiddelde']
-    ]
+    categorie_config = SCORE_CATEGORIEEN.get(indicator)
+    if categorie_config:
+        agg['categorie'] = pd.cut(
+            agg['gemiddelde'],
+            bins=categorie_config['bins'],
+            labels=categorie_config['labels'],
+            include_lowest=True,
+        ).astype('object')
+        kleuren = agg['categorie'].map(categorie_config['kleuren']).fillna('#95A5A6')
+        categorie_toelichting = categorie_config['toelichting']
+    else:
+        agg['categorie'] = 'Geen categorie'
+        kleuren = pd.Series('#95A5A6', index=agg.index)
+        categorie_toelichting = 'Geen bestaande categoriegrenzen voor deze score.'
 
     fig = go.Figure(go.Bar(
         x=agg['gemiddelde'],
         y=agg['store_naam'],
         orientation='h',
         marker_color=kleuren,
-        text=agg.apply(lambda r: f"{r['gemiddelde']:.2f} ({r['n_met_score']}/{r['n_deelnemers']} deeln.)", axis=1),
+        text=agg.apply(
+            lambda r: (
+                f"{r['gemiddelde']:.2f} — {r['categorie']} "
+                f"({r['n_met_score']}/{r['n_deelnemers']} deeln.)"
+            ),
+            axis=1,
+        ),
         textposition='outside',
     ))
 
@@ -2959,12 +3065,13 @@ def maak_scores_per_opdrachtgever(base_pad, db_url: str,
     )
 
     fig.update_layout(
-        title=f'{indicator_label} per opdrachtgever (groen = boven gemiddelde)',
+        title=f'{indicator_label} per opdrachtgever',
         xaxis_title=indicator_label,
         yaxis_title='',
         height=max(400, len(agg) * 30),
         margin=dict(l=200, r=150),
         showlegend=False,
+        meta={'categorie_toelichting': categorie_toelichting},
     )
     return fig, totaal_gem, len(agg)
 
@@ -3167,6 +3274,15 @@ def maak_vroege_kopers_profiel(base_pad: Path, db_url: str,
             df_scores_expanded = df_scores_expanded[df_scores_expanded['participant_id'].isin(pids)]
         df_scores_expanded = df_scores_expanded.drop_duplicates(subset='participant_id', keep='first')
 
+        # Categoriseer leefstijlscore: 1-3 Slecht, 4-5 Matig, 6-7 Goed, 8-10 Uitstekend
+        if 'rec_ls_lifestyle_score' in df_scores_expanded.columns:
+            df_scores_expanded['ls_cat'] = pd.cut(
+                df_scores_expanded['rec_ls_lifestyle_score'],
+                bins=[0.5, 3.5, 5.5, 7.5, 10.5],
+                labels=['Slecht', 'Matig', 'Goed', 'Uitstekend'],
+                include_lowest=True
+            )
+
         # Alle gebruikers krijgen een groep - select only available columns
         select_cols = ['participant_id']
         for col in ['rec_ls_lifestyle_score', 'rec_med_bmi', 'rec_ls_stress_sum', 'rec_heartrisk',
@@ -3174,6 +3290,13 @@ def maak_vroege_kopers_profiel(base_pad: Path, db_url: str,
             if col in df_scores_expanded.columns:
                 select_cols.append(col)
         df_all = df_scores_expanded[select_cols].copy()
+
+        # Categoriseer leefstijlscore per gebruiker
+        if 'ls_cat' in df_all.columns:
+            df_all['ls_cat'] = pd.to_numeric(df_all['ls_cat'], errors='coerce').astype(str).replace(
+                {'Slecht': '1', 'Matig': '2', 'Goed': '3', 'Uitstekend': '4'}
+            )
+
         df_all['koper_groep'] = 'Geen aankoop'
         df_all['dagen_tot_koop'] = pd.NA
 
@@ -3192,8 +3315,11 @@ def maak_vroege_kopers_profiel(base_pad: Path, db_url: str,
             df_all.at[idx, 'koper_groep'] = meta.get('koper_groep', 'Geen aankoop')
             df_all.at[idx, 'dagen_tot_koop'] = meta.get('dagen_tot_koop', pd.NA)
 
+        # Categorie labels voor leefstijlscore
+        ls_cat_labels = {1: tr('Slecht', 'nl'), 2: tr('Matig', 'nl'), 3: tr('Goed', 'nl'), 4: tr('Uitstekend', 'nl')}
+
         indicatoren = {
-            'Leefstijlscore': 'rec_ls_lifestyle_score',
+            'Leefstijlscore': 'ls_cat',
             'BMI': 'rec_med_bmi',
             'Stress': 'rec_ls_stress_sum',
             'Heartrisk': 'rec_heartrisk',
@@ -3212,20 +3338,36 @@ def maak_vroege_kopers_profiel(base_pad: Path, db_url: str,
             for grp in geselecteerde_groepen:
                 sub = df_all[df_all['koper_groep'] == grp][kolom].dropna()
                 if len(sub) > 0:
+                    # Gemiddelde score, of categorie modus als numeriek
+                    if label == 'Leefstijlscore':
+                        # Modus van de categorieën
+                        cat_counts = sub.value_counts()
+                        gemiddelde = int(cat_counts.idxmax()) if len(cat_counts) > 0 else 0
+                    else:
+                        gemiddelde = round(sub.mean(), 2)
                     rijen.append({
                         'Indicator': label,
                         'Groep': grp,
-                        'Gemiddelde': round(sub.mean(), 2),
+                        'Gemiddelde': gemiddelde,
                         'N': len(sub),
                     })
 
         df_plot = pd.DataFrame(rijen)
 
+        # Categorie kleuren voor leefstijlscore
+        ls_cat_kleuren = {
+            tr('Slecht', 'nl'): '#E74C3C',
+            tr('Matig', 'nl'): '#E87722',
+            tr('Goed', 'nl'): '#2ECC71',
+            tr('Uitstekend', 'nl'): '#1A8A4A',
+        }
         kleur_map = {
             'Vroege koper (≤90 dagen)':    '#2ECC71',
             'Late koper (91-365 dagen)':   '#E87722',
             'Zeer late koper (>365 dagen)': '#E74C3C',
             'Geen aankoop':                '#95A5A6',
+            # Extra kleur voor indicatoren balken
+            'Leefstijlscore': ls_cat_kleuren,
         }
 
         fig = px.bar(

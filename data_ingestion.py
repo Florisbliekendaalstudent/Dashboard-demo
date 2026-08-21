@@ -32,15 +32,24 @@ def _normalize_lifestyle_component_to_1_10(series: pd.Series) -> pd.Series:
     return 1.0 + 9.0 * scaled.clip(0, 1)
 
 
-def _compute_lifestyle_score(df: pd.DataFrame) -> pd.Series:
-    """Return a lifestyle score in the expected 1..10 range."""
+def _compute_lifestyle_score(
+    df: pd.DataFrame,
+    normalize_components: bool = False,
+) -> pd.Series:
+    """Bereken de leefstijlscore uit componenten op hun oorspronkelijke schaal.
+
+    Normaliseren naar 1..10 is alleen beschikbaar voor een expliciete aanroep;
+    de reguliere datalader verandert bronwaarden niet meer op basis van de
+    verdeling in de geladen dataset.
+    """
     score_cols = [col for col in df.columns if col.startswith('rec_ls_score_')]
     if not score_cols:
         return pd.Series(pd.NA, index=df.index, dtype='Float64')
 
     score_frame = df[score_cols].apply(pd.to_numeric, errors='coerce')
-    normalized = score_frame.apply(_normalize_lifestyle_component_to_1_10)
-    return normalized.mean(axis=1)
+    if normalize_components:
+        score_frame = score_frame.apply(_normalize_lifestyle_component_to_1_10)
+    return score_frame.mean(axis=1)
 def _load_table_from_database_always(table_name: str, code_dir: Path) -> pd.DataFrame:
     """Always load from database, ignore local parquet files."""
     return load_table_from_database(table_name, DB_URL)
