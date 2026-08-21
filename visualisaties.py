@@ -531,9 +531,42 @@ def maak_bmi_plot(df: pd.DataFrame, lang: str = 'nl', geslacht: str = 'totaal') 
 
 
 # ── Stress ─────────────────────────────────────────────────────────────────────
-def maak_stress_plot(df: pd.DataFrame, lang: str = 'nl') -> go.Figure:
-    s = _numeriek(df, 'rec_ls_stress_cat')
+def maak_stress_plot(df: pd.DataFrame, lang: str = 'nl', geslacht: str = 'totaal') -> go.Figure:
     labels = {k: tr(v, lang) for k, v in STRESS_LABELS.items()}
+    volgorde = [tr('Laag', lang), tr('Matig', lang), tr('Hoog', lang)]
+
+    # Bij vergelijking: man en vrouw naast elkaar tonen (gegroepeerde bar chart).
+    if geslacht == 'beide':
+        df2 = df.copy()
+        df2['stress_code'] = _numeriek(df, 'rec_ls_stress_cat')
+        df2['geslacht_code'] = pd.to_numeric(df2['rec_user_gender'], errors='coerce')
+        df2 = df2.dropna(subset=['stress_code', 'geslacht_code'])
+        df2['stress_label'] = df2['stress_code'].map(labels)
+        gender_labels = {k: tr(v, lang) for k, v in GENDER_LABELS.items()}
+        df2['geslacht_label'] = df2['geslacht_code'].map(gender_labels)
+        df2 = df2.dropna(subset=['stress_label', 'geslacht_label'])
+
+        counts = df2.groupby(['geslacht_label', 'stress_label']).size().reset_index(name='aantal')
+        totaal = counts.groupby('geslacht_label')['aantal'].transform('sum')
+        counts['percentage'] = counts['aantal'] / totaal * 100
+
+        kleur_map = {gender_labels[1]: GENDER_COLORS['Man'], gender_labels[0]: GENDER_COLORS['Vrouw']}
+        fig = px.bar(
+            counts, x='stress_label', y='percentage',
+            color='geslacht_label',
+            barmode='group',
+            color_discrete_map=kleur_map,
+            labels={'stress_label': '', 'percentage': tr('Percentage (%)', lang), 'geslacht_label': tr('Geslacht', lang)},
+            title=tr('Stresscategorie verdeling', lang),
+            category_orders={
+                'stress_label': volgorde,
+                'geslacht_label': [tr('Man', lang), tr('Vrouw', lang)],
+            },
+        )
+        return fig
+
+    # Anders: huidige weergave (enkele groep)
+    s = _numeriek(df, 'rec_ls_stress_cat')
     counts = _tel_percentages(s, labels)
     kleur_map = {v: RISICO_COLORS[k] for k, v in labels.items()}
     fig = px.bar(
@@ -542,7 +575,7 @@ def maak_stress_plot(df: pd.DataFrame, lang: str = 'nl') -> go.Figure:
         color_discrete_map=kleur_map,
         labels={'label': '', 'percentage': tr('Percentage (%)', lang)},
         title=tr('Stresscategorie verdeling', lang),
-        category_orders={'label': [tr('Laag', lang), tr('Matig', lang), tr('Hoog', lang)]},
+        category_orders={'label': volgorde},
     )
     fig.update_layout(showlegend=False)
     return fig

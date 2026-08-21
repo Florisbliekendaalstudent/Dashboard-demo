@@ -1383,20 +1383,20 @@ with st.sidebar:
         key="global_period_preset",
         label_visibility="collapsed",
     )
-    # Toelichting bij de periodefilter: klein en lichtgrijs via st.caption.
-    # apply_global_filters gebruikt de eerste beschikbare datumkolom uit
-    # DATUM_KOLOMMEN; dezelfde kolom wordt hier getoond.
+        # Toelichting bij de periodefilter: klein en lichtgrijs via st.caption.
     if datumkolom:
-        st.caption(tr(
-            "Filtert op de datum in '{kolom}'.",
-            lang,
-            kolom=datumkolom,
-        ))
+        start_datum, eind_datum = _periode_selectie(min_datum, max_datum)
+        if start_datum is not None and eind_datum is not None:
+            st.caption(tr(
+                "Toont alle waardes van ingevulde vragenlijsten tussen {start} en {eind}.",
+                lang,
+                start=start_datum.date(),
+                eind=eind_datum.date(),
+            ))
+        else:
+            st.caption(tr("Er is geen datumkolom beschikbaar om op te filteren.", lang))
     else:
-        st.caption(tr(
-            "Er is geen datumkolom beschikbaar om op te filteren.",
-            lang,
-        ))
+        st.caption(tr("Er is geen datumkolom beschikbaar om op te filteren.", lang))
     if st.session_state.get("global_period_preset") == "Custom":
         if min_datum is not None and max_datum is not None:
             st.date_input(
