@@ -10,3 +10,4 @@ Tabellen/*.parquet
 models/
 __pycache__/
 .DS_Store
+*.db
